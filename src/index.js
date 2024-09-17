@@ -125,13 +125,30 @@ async function updateVideoInMongoDB(videoFileKey) {
   try {
     const masterPlaylistUrl = `https://${outputBucket}.s3.${process.env.AWS_REGION}.amazonaws.com/processed/${videoFileKey}/master.m3u8`;
 
+    const videoId = String(videoFileKey).split(".")[0];
+    
+    console.log(`Attempting to update video with ID: ${videoId}`);
+
+    const existingVideo = await Video.findById(videoId);
+    
+    if (!existingVideo) {
+      console.log(`No video found with ID: ${videoId}`);
+      return null;
+    }
+    
     const updatedVideo = await Video.findByIdAndUpdate(
-      String(videoFileKey).split(".")[0],
+      videoId,
       { url: masterPlaylistUrl },
       { new: true }
     );
-
-    console.log(`Video record updated in MongoDB: ${updatedVideo}`);
+    
+    if (updatedVideo) {
+      console.log(`Video record updated in MongoDB: ${JSON.stringify(updatedVideo)}`);
+    } else {
+      console.log(`Failed to update video with ID: ${videoId}`);
+    }
+    
+    return updatedVideo;
   } catch (error) {
     console.error('Error updating video record in MongoDB:', error);
     throw error;
