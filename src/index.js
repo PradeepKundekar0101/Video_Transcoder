@@ -1,6 +1,7 @@
 const { exec } = require('child_process');
 const { S3Client, GetObjectCommand, PutObjectCommand } = require('@aws-sdk/client-s3');
-const fs = require('fs').promises;
+const fs = require('fs');
+const fsPromises = require('fs').promises;
 const path = require('path');
 const { pipeline } = require('stream/promises');
 const mongoose = require('mongoose');
@@ -25,9 +26,9 @@ const s3Client = new S3Client({
 
 async function checkFile(filePath) {
   try {
-    await fs.access(filePath);
+    await fsPromises.access(filePath);
     console.log(`File ${filePath} exists and is accessible`);
-    const stats = await fs.stat(filePath);
+    const stats = await fsPromises.stat(filePath);
     console.log(`File size: ${stats.size} bytes`);
   } catch (error) {
     console.error(`Error accessing ${filePath}:`, error);
@@ -91,7 +92,7 @@ function processVideo() {
 
 async function uploadProcessedVideo() {
   try {
-    const files = await fs.readdir(localOutputPath, { recursive: true });
+    const files = await fsPromises.readdir(localOutputPath, { recursive: true });
     
     for (const file of files) {
       const filePath = path.join(localOutputPath, file);
@@ -102,7 +103,7 @@ async function uploadProcessedVideo() {
       const command = new PutObjectCommand({
         Bucket: outputBucket,
         Key: key,
-        Body: await fs.readFile(filePath),
+        Body: await fsPromises.readFile(filePath),
         ContentType: file.endsWith('.m3u8') ? 'application/x-mpegURL' : 'video/MP2T',
       });
 
@@ -137,7 +138,9 @@ async function main() {
   try {
     await mongoose.connect(mongoUri, { useNewUrlParser: true, useUnifiedTopology: true });
     console.log('MongoDB connected');
-    console.log("Video file key: "+videoFileKey)
+
+    console.log(`Video file key: ${videoFileKey}`);
+
     await downloadVideo();
     await processVideo();
     await uploadProcessedVideo();
@@ -151,8 +154,8 @@ async function main() {
     process.exit(1);
   } finally {
     try {
-      await fs.unlink(localInputPath);
-      await fs.rmdir(localOutputPath, { recursive: true });
+      await fsPromises.unlink(localInputPath);
+      await fsPromises.rm(localOutputPath, { recursive: true, force: true });
     } catch (cleanupError) {
       console.error("Error during cleanup:", cleanupError);
     }
