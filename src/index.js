@@ -11,7 +11,7 @@ const inputS3Url = process.env.INPUT_S3_URL;
 const outputBucket = process.env.OUTPUT_BUCKET_NAME;
 const videoFileKey = process.env.VIDEO_FILE_KEY;
 const localInputPath = `/tmp/${path.basename(videoFileKey)}`;
-const localOutputPath = `/tmp/processed_${path.basename(videoFileKey)}`;
+const localOutputPath = `/tmp/processed_${path.basename(videoFileKey, path.extname(videoFileKey))}`;
 
 const mongoUri = process.env.MONGO_URI;
 const Video = require('./models/Video');
@@ -91,25 +91,29 @@ function processVideo() {
 }
 
 async function uploadProcessedVideo() {
-  try {
-    const files = await fsPromises.readdir(localOutputPath, { recursive: true });
-    
+  async function uploadDir(dirPath) {
+    const files = await fsPromises.readdir(dirPath);
     for (const file of files) {
-      const filePath = path.join(localOutputPath, file);
-      const key = `processed/${videoFileKey}/${file}`;
-      
-      console.log(`Uploading file: ${filePath} to ${outputBucket}/${key}`);
-      
-      const command = new PutObjectCommand({
-        Bucket: outputBucket,
-        Key: key,
-        Body: await fsPromises.readFile(filePath),
-        ContentType: file.endsWith('.m3u8') ? 'application/x-mpegURL' : 'video/MP2T',
-      });
-
-      await s3Client.send(command);
+      const filePath = path.join(dirPath, file);
+      const stats = await fsPromises.stat(filePath);
+      if (stats.isDirectory()) {
+        await uploadDir(filePath);
+      } else {
+        const key = `processed/${videoFileKey}/${path.relative(localOutputPath, filePath)}`;
+        console.log(`Uploading file: ${filePath} to ${outputBucket}/${key}`);
+        const command = new PutObjectCommand({
+          Bucket: outputBucket,
+          Key: key,
+          Body: await fsPromises.readFile(filePath),
+          ContentType: file.endsWith('.m3u8') ? 'application/x-mpegURL' : 'video/MP2T',
+        });
+        await s3Client.send(command);
+      }
     }
+  }
 
+  try {
+    await uploadDir(localOutputPath);
     console.log(`Uploaded processed video files to S3: ${outputBucket}/processed/${videoFileKey}/`);
   } catch (error) {
     console.error('Error uploading processed video:', error);
