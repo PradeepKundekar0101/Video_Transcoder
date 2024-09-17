@@ -123,7 +123,7 @@ async function uploadProcessedVideo() {
 
 async function updateVideoInMongoDB(videoFileKey) {
   try {
-    const masterPlaylistUrl = `https://${outputBucket}.s3.${process.env.AWS_REGION}.amazonaws.com/processed/${videoFileKey}/master.m3u8`;
+    const masterPlaylistUrl = `https://s3.${process.env.AWS_REGION}.amazonaws.com/${outputBucket}/processed/${videoFileKey}/master.m3u8`;
 
     const videoId = String(videoFileKey).split(".")[0];
     
