@@ -23,11 +23,13 @@ const s3Client = new S3Client({
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
 }});
 
-
 async function downloadVideo() {
+  const bucketName = inputS3Url.split('/')[2]; 
+  const objectKey = inputS3Url.split('/').slice(3).join('/'); 
+
   const command = new GetObjectCommand({
-    Bucket: inputS3Url||"".split('/')[2],  
-    Key: videoFileKey,
+    Bucket: bucketName,  
+    Key: objectKey,      
   });
 
   const { Body } = await s3Client.send(command);
