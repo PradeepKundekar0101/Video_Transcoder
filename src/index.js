@@ -157,8 +157,10 @@ async function updateVideoInMongoDB(videoFileKey) {
 
 async function main() {
   try {
-    await mongoose.connect(mongoUri, { useNewUrlParser: true, useUnifiedTopology: true });
-    console.log('MongoDB connected');
+    const { connection } = await mongoose.connect(mongoUri, {
+      dbName: "EarningEdge:Dev",
+    });
+    console.log(`MongoDB connected to ${connection.host}`);
 
     console.log(`Video file key: ${videoFileKey}`);
 
