@@ -10,7 +10,7 @@ const inputS3Url = process.env.INPUT_S3_URL;
 const outputBucket = process.env.OUTPUT_BUCKET_NAME;
 const videoFileKey = process.env.VIDEO_FILE_KEY;
 const localInputPath = `/tmp/${videoFileKey}`;  
-const localOutputPath = `/tmp/processed_${videoFileKey}`;  
+const localOutputPath = path.resolve(`/tmp/processed_${videoFileKey}`);
 
 
 const mongoUri = process.env.MONGO_URI; 
@@ -38,7 +38,8 @@ async function downloadVideo() {
 }
 
 
-function processVideo() {
+async function processVideo() {
+  await fs.mkdir(path.join(localOutputPath, '1'), { recursive: true });
   return new Promise((resolve, reject) => {
     const command = `ffmpeg -i ${localInputPath} \
   -filter_complex \
@@ -56,15 +57,21 @@ function processVideo() {
   -f hls -hls_time 6 -hls_list_size 0 -hls_segment_filename "${localOutputPath}/%v/segment%d.ts" \
   "${localOutputPath}/%v/playlist.m3u8"`;
 
-    exec(command, (error, stdout, stderr) => {
-      if (error) {
-        console.error(`Error processing video: ${stderr}`);
-        reject(error);
-      } else {
-        console.log(`Video processed: ${stdout}`);
+  exec(command, (error, stdout, stderr) => {
+    if (error) {
+      console.log(`Error processing video: ${stderr}`, 'error');
+      reject(error);
+    } else {
+      console.log(`Video processed. FFmpeg output: ${stdout}`);
+      if (fs.existsSync(`${localOutputPath}/1/segment1.ts`)) {
+        console.log(`Output file exists: ${localOutputPath}/1/segment1.ts`);
         resolve();
+      } else {
+        console.log(`Expected output file not found: ${localOutputPath}/1/segment1.ts`, 'error');
+        reject(new Error('FFmpeg did not produce expected output files'));
       }
-    });
+    }
+  });
   });
 }
 
@@ -106,7 +113,7 @@ async function updateVideoInMongoDB(videoFileKey) {
     const masterPlaylistUrl = `https://${outputBucket}.s3.${process.env.AWS_REGION}.amazonaws.com/processed/${videoFileKey}/master.m3u8`;
 
     const updatedVideo = await Video.findByIdAndUpdate(
-      videoFileKey,
+      String(videoFileKey).split(".")[0],
       { url: masterPlaylistUrl },
       { new: true }
     );
