@@ -69,17 +69,30 @@ function processVideo() {
 }
 
 async function uploadProcessedVideo() {
-  const files = fs.readdirSync(localOutputPath, { recursive: true });
+  const walkSync = (dir, filelist = []) => {
+    fs.readdirSync(dir).forEach(file => {
+      const dirFile = path.join(dir, file);
+      try {
+        filelist = fs.statSync(dirFile).isDirectory()
+          ? walkSync(dirFile, filelist)
+          : filelist.concat(dirFile);
+      } catch (err) {
+        console.error('Error accessing file:', dirFile, err);
+      }
+    });
+    return filelist;
+  };
   
-  for (const file of files) {
-    const filePath = path.join(localOutputPath, file);
-    const key = `processed/${videoFileKey}/${file}`;
+  const files = walkSync(localOutputPath);
+  
+  for (const filePath of files) {
+    const key = `processed/${videoFileKey}/${path.relative(localOutputPath, filePath)}`;
     
     const command = new PutObjectCommand({
       Bucket: outputBucket,
       Key: key,
       Body: fs.createReadStream(filePath),
-      ContentType: file.endsWith('.m3u8') ? 'application/x-mpegURL' : 'video/MP2T',
+      ContentType: filePath.endsWith('.m3u8') ? 'application/x-mpegURL' : 'video/MP2T',
     });
 
     await s3Client.send(command);
@@ -105,18 +118,15 @@ async function updateVideoInMongoDB(videoFileKey) {
 }
 
 
-
 async function main() {
-
-  mongoose.connect(mongoUri, { useNewUrlParser: true, useUnifiedTopology: true })
-    .then(() => console.log('MongoDB connected'))
-    .catch(err => console.error('MongoDB connection error:', err));
-
+  let mongoConnection;
   try {
+    mongoConnection = await mongoose.connect(mongoUri, { useNewUrlParser: true, useUnifiedTopology: true });
+    console.log('MongoDB connected');
+
     await downloadVideo();
     await processVideo();
     await uploadProcessedVideo();
-
     await updateVideoInMongoDB(videoFileKey);
   
     console.log("Video processing completed successfully.");
@@ -124,11 +134,16 @@ async function main() {
     console.error("Video processing failed: ", error);
     process.exit(1);
   } finally {
-    fs.unlinkSync(localInputPath);
-    fs.unlinkSync(localOutputPath);
+    if (fs.existsSync(localInputPath)) {
+      fs.unlinkSync(localInputPath);
+    }
+    if (fs.existsSync(localOutputPath)) {
+      fs.rmSync(localOutputPath, { recursive: true, force: true });
+    }
+    if (mongoConnection) {
+      await mongoConnection.disconnect();
+    }
   }
-
-  mongoose.connection.close();
 }
 
 main();
