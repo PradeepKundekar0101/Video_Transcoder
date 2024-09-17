@@ -93,7 +93,7 @@ async function updateVideoInMongoDB(videoFileKey) {
     const masterPlaylistUrl = `https://${outputBucket}.s3.${process.env.AWS_REGION}.amazonaws.com/processed/${videoFileKey}/master.m3u8`;
 
     const updatedVideo = await Video.findByIdAndUpdate(
-      videoFileKey,
+      String(videoFileKey).split(".")[0],
       { url: masterPlaylistUrl },
       { new: true }
     );
