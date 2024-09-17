@@ -10,7 +10,7 @@ const inputS3Url = process.env.INPUT_S3_URL;
 const outputBucket = process.env.OUTPUT_BUCKET_NAME;
 const videoFileKey = process.env.VIDEO_FILE_KEY;
 const localInputPath = `/tmp/${videoFileKey}`;  
-const localOutputPath = path.resolve(`/tmp/processed_${videoFileKey}`);
+const localOutputPath = `/tmp/processed_${videoFileKey}`;  
 
 
 const mongoUri = process.env.MONGO_URI; 
@@ -38,8 +38,7 @@ async function downloadVideo() {
 }
 
 
-async function processVideo() {
-  await fs.mkdir(path.join(localOutputPath, '1'), { recursive: true });
+function processVideo() {
   return new Promise((resolve, reject) => {
     const command = `ffmpeg -i ${localInputPath} \
   -filter_complex \
@@ -57,49 +56,30 @@ async function processVideo() {
   -f hls -hls_time 6 -hls_list_size 0 -hls_segment_filename "${localOutputPath}/%v/segment%d.ts" \
   "${localOutputPath}/%v/playlist.m3u8"`;
 
-  exec(command, (error, stdout, stderr) => {
-    if (error) {
-      console.log(`Error processing video: ${stderr}`, 'error');
-      reject(error);
-    } else {
-      console.log(`Video processed. FFmpeg output: ${stdout}`);
-      if (fs.existsSync(`${localOutputPath}/1/segment1.ts`)) {
-        console.log(`Output file exists: ${localOutputPath}/1/segment1.ts`);
-        resolve();
+    exec(command, (error, stdout, stderr) => {
+      if (error) {
+        console.error(`Error processing video: ${stderr}`);
+        reject(error);
       } else {
-        console.log(`Expected output file not found: ${localOutputPath}/1/segment1.ts`, 'error');
-        reject(new Error('FFmpeg did not produce expected output files'));
+        console.log(`Video processed: ${stdout}`);
+        resolve();
       }
-    }
-  });
+    });
   });
 }
 
 async function uploadProcessedVideo() {
-  const walkSync = (dir, filelist = []) => {
-    fs.readdirSync(dir).forEach(file => {
-      const dirFile = path.join(dir, file);
-      try {
-        filelist = fs.statSync(dirFile).isDirectory()
-          ? walkSync(dirFile, filelist)
-          : filelist.concat(dirFile);
-      } catch (err) {
-        console.error('Error accessing file:', dirFile, err);
-      }
-    });
-    return filelist;
-  };
+  const files = fs.readdirSync(localOutputPath, { recursive: true });
   
-  const files = walkSync(localOutputPath);
-  
-  for (const filePath of files) {
-    const key = `processed/${videoFileKey}/${path.relative(localOutputPath, filePath)}`;
+  for (const file of files) {
+    const filePath = path.join(localOutputPath, file);
+    const key = `processed/${videoFileKey}/${file}`;
     
     const command = new PutObjectCommand({
       Bucket: outputBucket,
       Key: key,
       Body: fs.createReadStream(filePath),
-      ContentType: filePath.endsWith('.m3u8') ? 'application/x-mpegURL' : 'video/MP2T',
+      ContentType: file.endsWith('.m3u8') ? 'application/x-mpegURL' : 'video/MP2T',
     });
 
     await s3Client.send(command);
@@ -113,7 +93,7 @@ async function updateVideoInMongoDB(videoFileKey) {
     const masterPlaylistUrl = `https://${outputBucket}.s3.${process.env.AWS_REGION}.amazonaws.com/processed/${videoFileKey}/master.m3u8`;
 
     const updatedVideo = await Video.findByIdAndUpdate(
-      String(videoFileKey).split(".")[0],
+      videoFileKey,
       { url: masterPlaylistUrl },
       { new: true }
     );
@@ -125,52 +105,30 @@ async function updateVideoInMongoDB(videoFileKey) {
 }
 
 
-async function main() {
-  let mongoConnection;
-  try {
-    mongoConnection = await mongoose.connect(mongoUri, { useNewUrlParser: true, useUnifiedTopology: true });
-    console.log('MongoDB connected');
 
+async function main() {
+
+  mongoose.connect(mongoUri, { useNewUrlParser: true, useUnifiedTopology: true })
+    .then(() => console.log('MongoDB connected'))
+    .catch(err => console.error('MongoDB connection error:', err));
+
+  try {
     await downloadVideo();
     await processVideo();
     await uploadProcessedVideo();
+
     await updateVideoInMongoDB(videoFileKey);
   
     console.log("Video processing completed successfully.");
   } catch (error) {
-    console.log(`Video processing failed: ${error.message}`, 'error');
+    console.error("Video processing failed: ", error);
     process.exit(1);
   } finally {
-    try {
-      if (fs.existsSync(localInputPath)) {
-        fs.unlinkSync(localInputPath);
-      }
-      if (fs.existsSync(localOutputPath)) {
-        fs.rmSync(localOutputPath, { recursive: true, force: true });
-      }
-    } catch (cleanupError) {
-      console.log(`Error during cleanup: ${cleanupError.message}`, 'error');
-    }
-    if (mongoConnection) {
-      await mongoConnection.disconnect();
-    }
+    fs.unlinkSync(localInputPath);
+    fs.unlinkSync(localOutputPath);
   }
+
+  mongoose.connection.close();
 }
-
-// Ensure unhandled errors are logged
-process.on('uncaughtException', (error) => {
-  console.log(`Uncaught Exception: ${error.message}`, 'error');
-  process.exit(1);
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.log(`Unhandled Rejection at: ${promise}, reason: ${reason}`, 'error');
-  process.exit(1);
-});
-
-main().catch(error => {
-  console.log(`Fatal error: ${error.message}`, 'error');
-  process.exit(1);
-});
 
 main();
