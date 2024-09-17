@@ -122,28 +122,48 @@ async function main() {
   let mongoConnection;
   try {
     mongoConnection = await mongoose.connect(mongoUri, { useNewUrlParser: true, useUnifiedTopology: true });
-    console.log('MongoDB connected');
+    logger('MongoDB connected');
 
     await downloadVideo();
     await processVideo();
     await uploadProcessedVideo();
     await updateVideoInMongoDB(videoFileKey);
   
-    console.log("Video processing completed successfully.");
+    logger("Video processing completed successfully.");
   } catch (error) {
-    console.error("Video processing failed: ", error);
+    logger(`Video processing failed: ${error.message}`, 'error');
     process.exit(1);
   } finally {
-    if (fs.existsSync(localInputPath)) {
-      fs.unlinkSync(localInputPath);
-    }
-    if (fs.existsSync(localOutputPath)) {
-      fs.rmSync(localOutputPath, { recursive: true, force: true });
+    try {
+      if (fs.existsSync(localInputPath)) {
+        fs.unlinkSync(localInputPath);
+      }
+      if (fs.existsSync(localOutputPath)) {
+        fs.rmSync(localOutputPath, { recursive: true, force: true });
+      }
+    } catch (cleanupError) {
+      logger(`Error during cleanup: ${cleanupError.message}`, 'error');
     }
     if (mongoConnection) {
       await mongoConnection.disconnect();
     }
   }
 }
+
+// Ensure unhandled errors are logged
+process.on('uncaughtException', (error) => {
+  logger(`Uncaught Exception: ${error.message}`, 'error');
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  logger(`Unhandled Rejection at: ${promise}, reason: ${reason}`, 'error');
+  process.exit(1);
+});
+
+main().catch(error => {
+  logger(`Fatal error: ${error.message}`, 'error');
+  process.exit(1);
+});
 
 main();
